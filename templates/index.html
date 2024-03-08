@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Posture Detector WebUI</title>
+	<link rel="stylesheet" href="https://cdn.skypack.dev/-/holiday.css@v0.9.5-Jl4gV7y2zMps6H5ZtJC8/dist=es2020,mode=raw/dist/holiday.css">
+	<script src="//cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+	<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+	<style>
+		a {
+			color: rgb(130, 255, 180);
+		}
+		a:visited {
+			color: rgb(130, 255, 180);
+		}
+		a:hover {
+			color: white !important;
+		}
+		.hidden {
+			display: none;
+		}
+		#msg {
+			border-radius: 5px;
+			padding: 5px;
+			background-color: #837600;
+			color: white;
+		}
+	</style>
+</head>
+<body>
+	<h2>Posture Detector</h2>
+	<div id="msg" class="hidden">Loading...</div>
+	<br>
+	<img src="/video_feed" id="img">
+	<br>
+	<details open>
+		<summary>Posture</summary>
+		<canvas id="posture-chart" width="400" height="200"></canvas>
+	</details>
+	<br>
+	<details>
+		<summary>Settings</summary>
+		<button onclick="setup_notifications();">Setup Notifications</button>
+		<div id="settings_container">
+			<div id="settings_dynamic"></div>
+			<button onclick="upload_settings();">Save Settings</button>
+			<button onclick="download_settings();">Sync Settings from Server</button>
+		</div>
+	</details>
+	<br>
+	<details>
+		<summary>Notifiers</summary>
+		<div id="notifiers"></div>
+		<button onclick="upload_notifiers();">Save Config</button>
+		<button onclick="download_notifiers();">Sync Notifiers from Server</button>
+	</details>
+	<script>
+		const ctx = document.getElementById('posture-chart').getContext('2d');
+		const data = {
+			labels: [], // Time labels
+			datasets: [{
+				label: 'Posture',
+				data: [], // Your actual data
+				borderColor: 'rgba(75, 192, 192, 1)',
+				borderWidth: 2,
+				fill: false
+			}]
+		};
+
+		const config = {
+			type: 'line',
+			data: data,
+			options: {
+				scales: {
+					x: {
+						type: 'linear',
+						position: 'bottom'
+					}
+				}
+			}
+		};
+
+		var postureChart = new Chart(ctx, {
+			type: 'line',
+			data: {
+				labels: [], // X-axis labels (timestamps or other)
+				datasets: [{
+					label: 'Posture (0: good, 1 or -1: bad)',
+					borderColor: 'rgb(75, 192, 192)',
+					data: [],
+					fill: false
+				}]
+			}
+		});
+
+		// Function to add data points
+		function update_chart(newPostureValue) {
+			var currentTime = new Date().toLocaleTimeString(); // Use timestamps or other suitable X-axis values
+			postureChart.data.labels.push(currentTime);
+			postureChart.data.datasets[0].data.push(newPostureValue);
+
+			// Keep a maximum number of data points (e.g., 20) to maintain a sliding window
+			if (postureChart.data.labels.length > 20) {
+				postureChart.data.labels.shift();
+				postureChart.data.datasets[0].data.shift();
+			}
+
+			postureChart.update(); // Update the chart
+		}
+
+		function setup_notifications() {
+			Notification.requestPermission().then(function(result) {
+				Swal.fire({
+					title: "Notifications",
+					text: "Notification permissions " + result,
+					icon: "info",
+					confirmButtonText: "OK"
+				});
+			});
+		}
+
+		function get_cameras() {
+			// this is synchronous because i'm lazy
+			var xhr = new XMLHttpRequest();
+			xhr.open("GET", "/get_cameras", false);
+			xhr.send();
+			return JSON.parse(xhr.responseText);
+		}
+
+		function reload_cameras() {
+			fetch("/reload_cameras")
+				.then(download_settings);
+		}
+
+		function generate_html_for(key, value, container) {
+			if (container === "params") {
+				if (key === "use_gpu"){
+					return `<label for="${key}">Use GPU</label><input type="checkbox" id="${key}" name="${key}" ${value ? "checked" : ""}>`;
+				} else if (key === "GPUdeviceNumber") {
+					return `<label for="${key}">GPU Device Number</label><input type="number" id="${key}" name="${key}" value="${value}">`;
+				} else {
+					return ""; // these parameters can be edited but are best left alone for most users
+				}
+			} else {
+				if (key === "camera_index") {
+					var cameras = get_cameras();
+					var html = `<label for="${key}">Camera Index</label><select id="${key}" name="${key}">`;
+					for (var i = 0; i < cameras.length; i++) {
+						html += `<option value="${i}" ${i == value ? "selected" : ""}>${cameras[i]}</option>`;
+					}
+					html += "</select> <button onclick=\"reload_cameras();\">Reload Cameras</button><br>";
+					return html;
+				} else if (key === "posture_thresholds") {
+					var html = `<table id="${key}"><tr><th>Posture</th><th>Threshold Angle/Distance (TODO: algorithm?)</th></tr>`;
+					for (var posture in value) {
+						html += `<tr><td>${posture}</td><td><input type="number" name="${posture}" id="${key}_${posture}" value="${value[posture]}"></td></tr>`;
+					}
+					html += "</table>";
+					return html;
+				} else {
+					return "";
+				}
+			}
+		}
+
+		function download_settings() {
+			var overall_container = document.getElementById("settings_dynamic");
+			overall_container.innerHTML = "";
+			var container1 = document.createElement("div");
+			container1.id = "settings_params";
+			var container2 = document.createElement("div");
+			container2.id = "settings_webui";
+			overall_container.appendChild(container1);
+			overall_container.appendChild(container2);
+			fetch("/get_config/params")
+				.then(data => data.json())
+				.then(json => {
+					console.log(json);
+					for (var key in json) {
+						var div = document.createElement("div");
+						div.innerHTML = generate_html_for(key, json[key], "params");
+						container1.appendChild(div);
+					}
+				});
+			fetch("/get_config/webui")
+				.then(data => data.json())
+				.then(json => {
+					console.log(json);
+					for (var key in json) {
+						var div = document.createElement("div");
+						div.innerHTML = generate_html_for(key, json[key], "webui");
+						container2.appendChild(div);
+					}
+				});
+		}
+
+		function upload_settings() {
+			var ids = {
+				"params": ["use_gpu", "GPUdeviceNumber"],
+				"webui": ["camera_index", "posture_thresholds"]
+			};
+			var params = {};
+			for (var container in ids) {
+				for (var i = 0; i < ids[container].length; i++) {
+					var id = ids[container][i];
+					if (container === "params") {
+						if (id === "use_gpu") {
+							params[id] = document.getElementById(id).checked;
+						} else if (id === "GPUdeviceNumber") {
+							params[id] = parseInt(document.getElementById(id).value);
+						}
+					} else {
+						if (id === "camera_index") {
+							params[id] = parseInt(document.getElementById(id).value);
+						} else if (id === "posture_thresholds") {
+							var table = document.getElementById(id);
+							var thresholds = {};
+							for (var j = 1; j < table.rows.length; j++) {
+								var row = table.rows[j];
+								thresholds[row.cells[0].innerHTML] = parseInt(row.cells[1].children[0].value);
+							}
+							params[id] = thresholds;
+						}
+					}
+				}
+			}
+			console.log(params);
+			fetch("/set_config", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json"
+				},
+				body: JSON.stringify(params)
+			}).then(function(){
+				window.location.reload();
+			});
+		}
+
+		function download_notifiers() {
+			fetch("/notifier_config/getall").then(r=>{return r.json()})
+				.then(data => {
+					var container = document.getElementById("notifiers");
+					container.innerHTML = "";
+					for (var i = 0; i < data.length; i++) {
+						var notifier = data[i];
+						var div = document.createElement("div");
+						div.id = "notifier_" + notifier.id;
+						// {"enabled": false, "id": "test", "name": "Test Notifier", "description": "This is a test notifier. It will display a notification on your desktop.", "testkey": {"default": "testval", "name": "Test Config Thingy", "description": "Holds a test value", "value": "testval"}}
+						div.innerHTML = `<h3>${notifier.name}</h3><p>${notifier.description}</p>`;
+						div.innerHTML += `<label for="${notifier.id}_enabled">Enabled</label><input type="checkbox" id="${notifier.id}_enabled" name="enabled" ${notifier.enabled ? "checked" : ""}><br>`;
+						for (var key in notifier) {
+							if (key === "id" || key === "name" || key === "description" || key === "enabled") {
+								continue;
+							}
+							var sub = notifier[key];
+							// checkboxes are handled differently
+							console.log(sub);
+							if (sub.type === "checkbox") {
+								var ischecked = sub.value === "1";
+								div.innerHTML += `<label for="${notifier.id}_${key}">${sub.name}</label><input type="checkbox" id="${notifier.id}_${key}" name="${key}" ${ischecked ? "checked" : ""}><br>`;
+							} else {
+								div.innerHTML += `<label for="${notifier.id}_${key}">${sub.name}</label><input type="${sub.type}" id="${notifier.id}_${key}" name="${key}" value="${sub.value}">`;
+							}
+						}
+						div.innerHTML += `<br>`;
+						container.appendChild(div);
+					}
+				});
+		}
+
+		function upload_notifiers() {
+			var notifiers = {};
+			fetch("/notifier_config/getall").then(r=>{return r.json()})
+				.then(data => {
+					for (var i = 0; i < data.length; i++) {
+						var notifier = data[i];
+						notifiers[notifier.id] = {};
+						notifiers[notifier.id].enabled = document.getElementById(notifier.id + "_enabled").checked;
+						for (var key in notifier) {
+							if (key === "id" || key === "name" || key === "description" || key === "enabled") {
+								continue;
+							}
+							var sub = notifier[key];
+							if (sub.type === "checkbox") {
+								notifiers[notifier.id][key] = document.getElementById(notifier.id + "_" + key).checked ? "1" : "0";
+							} else {
+								notifiers[notifier.id][key] = document.getElementById(notifier.id + "_" + key).value;
+							}
+						}
+					}
+					console.log(notifiers);
+					fetch("/notifier_config/setall", {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json"
+						},
+						body: JSON.stringify(notifiers)
+					}).then(function(){
+						//window.location.reload();
+					});
+				});
+		}
+
+		window.onload = function() {
+			var image = document.getElementById("img");
+
+			function update() {
+				// update image
+				image.src = image.src.split("?")[0] + "?" + new Date().getTime();
+				// update message x
+				fetch("/get_msg")
+					.then(data => data.json())
+					.then(json => {
+						var txt = json.msg;
+						var posture = json.posture;
+						if (txt != "nope") {
+							document.getElementById("msg").innerHTML = txt;
+							document.getElementById("msg").classList.remove("hidden");
+						} else {
+							document.getElementById("msg").innerHTML = "";
+							document.getElementById("msg").classList.add("hidden");
+						}
+						if (posture !== null) {
+							update_chart(posture);
+						}
+						if (posture === 1) {
+							//new Notification("Sit up!", { body: "Your posture is bad. If this notification was wrong, please adjust the thresholds in the settings." });
+							document.getElementById("msg").innerHTML = "Your posture is bad. If this is wrong, please adjust the thresholds in the settings.";
+							document.getElementById("msg").classList.remove("hidden");
+						} else {
+							document.getElementById("msg").innerHTML = "";
+							document.getElementById("msg").classList.add("hidden");
+						}
+					})
+					.catch(err => {
+						console.error(err);
+						document.getElementById("msg").innerHTML = "Error: " + err;
+						document.getElementById("msg").classList.remove("hidden");
+					});
+			}
+			download_settings();
+			download_notifiers();
+			setInterval(update, 1000);
+		}
+	</script>
+</body>
+</html>
