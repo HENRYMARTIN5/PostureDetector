@@ -44,7 +44,7 @@ def list_ports():
                 print("Port %s is working and reads images (%s x %s)" %(dev_port,h,w))
                 working_ports.append(dev_port)
             else:
-                print("Port %s for camera ( %s x %s) is present but does not reads." %(dev_port,h,w))
+                print("Port %s for camera (%s x %s) is present but does not read." %(dev_port,h,w))
                 available_ports.append(dev_port)
         dev_port +=1
     return available_ports,working_ports,non_working_ports
@@ -52,9 +52,9 @@ def list_ports():
 log.info('Loading model...')
 model = pr.get_testing_model()
 model.load_weights('./model/keras/model.h5')
-pr.model = model  # ughhhhh this is so idiotic
+pr.model = model
 
-# log.info out possible video inputs
+log.info("Finding cameras...")
 avail_cams, working_ports, non_working_ports = list_ports()
 log.info("Available cameras: " + str(avail_cams))
 defcam = config.get("webui").get("camera_index", 0)
@@ -69,27 +69,7 @@ posture = False
 running = True
 HEADLESS = True
 
-if vi:
-    # cap.set(100, 160)
-    # cap.set(200, 120)
-    # cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))
-    # width = 1920
-    # height = 1080
-    # cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-    # cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-    
-    # settings = {
-    #     cv2.CAP_PROP_FRAME_WIDTH: 224,
-    #     cv2.CAP_PROP_FRAME_HEIGHT: 224,
-    #     cv2.CAP_PROP_FPS: 5
-    # }
-    # success = True
-    # for key, value in settings.items():
-    #     success = cap.set(key, value) and success
-    # if not success:
-    #     log.warn("Unable to set some of (or all) camera settings!")
-    pass
-else:
+if not vi:
     log.warn("Unable to open camera! Please check your camera connection or select another camera from the WebUI.")
     cap.release()
 
@@ -106,42 +86,21 @@ current_frame = b''
 
 global_frame = None
 
-# def get_camera():
-#     global cap, global_frame
-#     ret, frame = cap.read()
-#     if not ret:
-#         log.error("Unable to read frame from camera")
-#         return
-#     global_frame = frame
-
 def schedule_thread():
     global running
-    threads = []
-    thread_count = 0
-    thread_target = 10
-    #schedule.every(0.1).seconds.do(get_camera)
     while running:
-        #schedule.run_pending()
         try:
-            # if thread_count < thread_target:
-            #     threads.append(threading.Thread(target=generate))
-            #     threads[-1].start()
-            #     thread_count += 1
-            # else:
-            #     for t in threads:
-            #         t.join()
-            #     threads = []
-            #     thread_count = 0
             generate()
         except KeyboardInterrupt:
             log.info("Shutting down...")
             running = False
-            break    
+            break
         except Exception as e:
             log.error("Unable to generate frame: " +
                       str(traceback.format_exc()))
 
 def send_notification(posture):
+    global running
     for notifier in notifiers:
         try:
             notifier._notify(posture)
@@ -152,9 +111,6 @@ def send_notification(posture):
         except Exception as e:
             log.error("Unable to send notification: " +
                       str(traceback.format_exc()))
-
-
-
 
 def generate():
     global model, msg, posture, cap, current_frame, global_frame, params, model_params
@@ -236,7 +192,6 @@ def set_config(request: Request):
     old_webui = config.get("webui")
     log.debug(str(data))
     for key, value in data.items():
-        # log.debug("Setting " + key + " to " + value)
         if key in sections.get("params"):
             new = config.get("params")
             new[key] = value
@@ -266,7 +221,6 @@ def notifier_config_getall():
 @app.post('/notifier_config/setall')
 def notifier_config_setall(request: Request):
     data = request.json()
-    # {'test': {'enabled': False, 'testkey': 'testval', 'testcheck': '1'}}
     for k, v in data.items():
         old = config.get("notifiers." + k)
         for k2, v2 in v.items():

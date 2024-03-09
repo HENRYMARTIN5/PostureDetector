@@ -18,6 +18,18 @@ colors = [[255, 0, 0], [255, 85, 0], [255, 170, 0], [255, 255, 0], [170, 255, 0]
 
 # Function to pad image
 def padRightDownCorner(img, stride, padValue):
+    """
+    Pads the input image to ensure its height and width are divisible by the given stride.
+
+    Args:
+        img (numpy.ndarray): The input image.
+        stride (int): The stride value.
+        padValue (int): The value used for padding.
+
+    Returns:
+        tuple: A tuple containing the padded image and the padding values.
+
+    """
     h, w = img.shape[:2]
     pad = [0, 0, 0, 0]
     pad[2] = stride - (h % stride) if (h % stride != 0) else 0
@@ -29,6 +41,17 @@ def padRightDownCorner(img, stride, padValue):
 
 # Function to process input image
 def process(input_image, params, model_params):
+    """
+    Process the input image to detect and visualize human poses.
+
+    Args:
+        input_image (numpy.ndarray): The input image.
+        params (dict): Parameters for pose detection.
+        model_params (dict): Parameters for the pose detection model.
+
+    Returns:
+        tuple: A tuple containing the processed image with visualized poses and the detected pose positions.
+    """
     oriImg = input_image
     multiplier = [x * model_params['boxsize'] / oriImg.shape[0] for x in params['scale_search']]
     heatmap_avg = np.zeros((oriImg.shape[0], oriImg.shape[1], 19))
@@ -86,6 +109,15 @@ def process(input_image, params, model_params):
 
 # Function to check position based on keypoints
 def checkPosition(all_peaks):
+    """
+    Checks the posture of the body based on the detected body keypoints.
+
+    Args:
+        all_peaks (list): A list of detected body keypoints.
+
+    Returns:
+        int: Returns 1 if the body position is rounded, -1 if the body position is back, and 0 otherwise.
+    """
     try:
         if all_peaks[16]:
             a = all_peaks[16][0][0:2]  # Right Ear
@@ -107,7 +139,22 @@ def checkPosition(all_peaks):
         log.warn("Not in lateral view and unable to detect ears or hip")
 
 # Function to calculate angle between two points
+import math
+
 def calcAngle(a, b):
+    """
+    Calculates the angle between two points.
+
+    Parameters:
+    a (tuple): The coordinates of the first point (ax, ay).
+    b (tuple): The coordinates of the second point (bx, by).
+
+    Returns:
+    float: The angle between the two points in radians.
+
+    Raises:
+    Exception: If unable to calculate the angle.
+    """
     try:
         ax, ay = a
         bx, by = b
