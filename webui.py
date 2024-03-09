@@ -23,22 +23,44 @@ app = FastAPI()
 
 config = pr.config
 
+def list_ports():
+    """
+    Test the ports and returns a tuple with the available ports and the ones that are working.
+    """
+    non_working_ports = []
+    dev_port = 0
+    working_ports = []
+    available_ports = []
+    while len(non_working_ports) < 6: # if there are more than 5 non working ports stop the testing. 
+        camera = cv2.VideoCapture(dev_port)
+        if not camera.isOpened():
+            non_working_ports.append(dev_port)
+            print("Port %s is not working." %dev_port)
+        else:
+            is_reading, img = camera.read()
+            w = camera.get(3)
+            h = camera.get(4)
+            if is_reading:
+                print("Port %s is working and reads images (%s x %s)" %(dev_port,h,w))
+                working_ports.append(dev_port)
+            else:
+                print("Port %s for camera ( %s x %s) is present but does not reads." %(dev_port,h,w))
+                available_ports.append(dev_port)
+        dev_port +=1
+    return available_ports,working_ports,non_working_ports
+
 log.info('Loading model...')
 model = pr.get_testing_model()
 model.load_weights('./model/keras/model.h5')
 pr.model = model  # ughhhhh this is so idiotic
 
 # log.info out possible video inputs
-avail_cams = []
-for i in range(10):
-    cap = cv2.VideoCapture(i)
-    if cap.isOpened():
-        avail_cams.append(i)
-        cap.release()
+avail_cams, working_ports, non_working_ports = list_ports()
 log.info("Available cameras: " + str(avail_cams))
 defcam = config.get("webui").get("camera_index", 0)
 log.debug("Defaulting to camera " + str(defcam))
 camera_num = defcam
+log.info("Opening camera...")
 cap = cv2.VideoCapture(camera_num)
 vi = cap.isOpened()
 
@@ -56,16 +78,17 @@ if vi:
     # cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
     # cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
     
-    settings = {
-        cv2.CAP_PROP_FRAME_WIDTH: 224,
-        cv2.CAP_PROP_FRAME_HEIGHT: 224,
-        cv2.CAP_PROP_FPS: 5
-    }
-    success = True
-    for key, value in settings.items():
-        success = cap.set(key, value) and success
-    if not success:
-        log.warn("Unable to set some of (or all) camera settings!")
+    # settings = {
+    #     cv2.CAP_PROP_FRAME_WIDTH: 224,
+    #     cv2.CAP_PROP_FRAME_HEIGHT: 224,
+    #     cv2.CAP_PROP_FPS: 5
+    # }
+    # success = True
+    # for key, value in settings.items():
+    #     success = cap.set(key, value) and success
+    # if not success:
+    #     log.warn("Unable to set some of (or all) camera settings!")
+    pass
 else:
     log.warn("Unable to open camera! Please check your camera connection or select another camera from the WebUI.")
     cap.release()
@@ -192,12 +215,7 @@ def video_feed():
 @app.get('/reload_cameras')
 def reload_cameras():
     global avail_cams
-    avail_cams = []
-    for i in range(10):
-        cap = cv2.VideoCapture(i)
-        if cap.isOpened():
-            avail_cams.append(i)
-            cap.release()
+    avail_cams, working_ports, non_working_ports = list_ports()
     return avail_cams
 
 
